@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Pixel Dino Run</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #090d16;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 12px;
+    }
+    .hud {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .brand { font-weight: 800; font-size: 18px; color: #10b981; }
+    .score-box { font-family: monospace; font-size: 18px; font-weight: bold; color: #f8fafc; }
+    .canvas-wrap {
+      position: relative;
+      border: 2px solid #334155;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 12px 28px rgba(0,0,0,0.6);
+    }
+    canvas { display: block; background: #0f172a; }
+    .overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    .overlay.hidden { display: none; }
+    .btn {
+      background: #10b981;
+      color: #0f172a;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .btn:hover { background: #34d399; }
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="brand">PIXEL RUNNER</div>
+    <div class="score-box">HI <span id="hi">00000</span> &nbsp; <span id="score">00000</span></div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="canvas" width="600" height="240"></canvas>
+    <div class="overlay" id="start-overlay">
+      <h2 style="font-size: 24px; color: #10b981;">T-Rex Dino Runner</h2>
+      <p style="color: #94a3b8; font-size: 13px;">Jump over cacti and obstacles! Press Space or Tap.</p>
+      <button class="btn" onclick="start()">START RUN</button>
+    </div>
+    <div class="overlay hidden" id="over-overlay">
+      <h2 style="font-size: 24px; color: #ef4444;">CRASHED!</h2>
+      <p id="over-stat" style="color: #cbd5e1; font-size: 13px;"></p>
+      <button class="btn" onclick="start()">RUN AGAIN</button>
+    </div>
+  </div>
+
+  <div class="hint">Spacebar / Up Arrow / Tap screen to jump</div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function beep(f, dur=0.06, type='sine') {
+      if (!audioCtx) return;
+      try {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = type;
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        o.start();
+        o.stop(audioCtx.currentTime + dur);
+      } catch (e) {}
+    }
+
+    const groundY = 200;
+    let dino = { x: 50, y: groundY - 40, w: 32, h: 40, vy: 0, jumpPower: -11, gravity: 0.6, isGrounded: true };
+    let obstacles = [];
+    let speed = 5;
+    let score = 0;
+    let hiScore = parseInt(localStorage.getItem('dino_hi') || '0', 10);
+    let isPlaying = false;
+    let nextObstacle = 80;
+
+    document.getElementById('hi').innerText = String(hiScore).padStart(5, '0');
+
+    function jump() {
+      if (!isPlaying) {
+        start();
+        return;
+      }
+      if (dino.isGrounded) {
+        dino.vy = dino.jumpPower;
+        dino.isGrounded = false;
+        beep(500, 0.08);
+      }
+    }
+
+    function start() {
+      dino.y = groundY - 40;
+      dino.vy = 0;
+      dino.isGrounded = true;
+      obstacles = [];
+      speed = 5;
+      score = 0;
+      nextObstacle = 60;
+      isPlaying = true;
+      document.getElementById('start-overlay').classList.add('hidden');
+      document.getElementById('over-overlay').classList.add('hidden');
+      beep(600, 0.1);
+    }
+
+    function gameOver() {
+      isPlaying = false;
+      beep(150, 0.25, 'sawtooth');
+      if (score > hiScore) {
+        hiScore = score;
+        localStorage.setItem('dino_hi', hiScore);
+        document.getElementById('hi').innerText = String(hiScore).padStart(5, '0');
+      }
+      document.getElementById('over-stat').innerText = `Score: ${score} · Best: ${hiScore}`;
+      document.getElementById('over-overlay').classList.remove('hidden');
+    }
+
+    function spawnObstacle() {
+      const type = Math.random() > 0.5 ? 'large' : 'small';
+      const w = type === 'large' ? 24 : 16;
+      const h = type === 'large' ? 42 : 30;
+      obstacles.push({
+        x: canvas.width + 10,
+        y: groundY - h,
+        w: w,
+        h: h
+      });
+    }
+
+    function update() {
+      if (!isPlaying) return;
+
+      // Gravity & Jump
+      dino.vy += dino.gravity;
+      dino.y += dino.vy;
+      if (dino.y >= groundY - dino.h) {
+        dino.y = groundY - dino.h;
+        dino.vy = 0;
+        dino.isGrounded = true;
+      }
+
+      // Obstacle management
+      nextObstacle--;
+      if (nextObstacle <= 0) {
+        spawnObstacle();
+        nextObstacle = Math.floor(Math.random() * 60) + 70;
+      }
+
+      for (let i = 0; i < obstacles.length; i++) {
+        let obs = obstacles[i];
+        obs.x -= speed;
+
+        // Collision Check (AABB with slightly forgiving hitbox)
+        const pad = 4;
+        if (
+          dino.x + pad < obs.x + obs.w &&
+          dino.x + dino.w - pad > obs.x &&
+          dino.y + pad < obs.y + obs.h &&
+          dino.y + dino.h - pad > obs.y
+        ) {
+          return gameOver();
+        }
+      }
+
+      obstacles = obstacles.filter(o => o.x > -50);
+
+      // Score and Speed Ramping
+      score += 1;
+      if (score % 500 === 0) {
+        speed += 0.5;
+        beep(800, 0.15);
+      }
+
+      document.getElementById('score').innerText = String(score).padStart(5, '0');
+    }
+
+    function draw() {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Ground Line
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(canvas.width, groundY);
+      ctx.stroke();
+
+      // Ground bumps
+      ctx.fillStyle = '#1e293b';
+      for (let i = 0; i < canvas.width; i += 40) {
+        ctx.fillRect((i - (score * 2 % 40)), groundY + 4, 12, 2);
+      }
+
+      // Draw Dino
+      ctx.fillStyle = '#10b981';
+      ctx.fillRect(dino.x + 8, dino.y, dino.w - 8, dino.h - 8); // body
+      ctx.fillRect(dino.x + 16, dino.y - 10, 16, 16); // head
+      ctx.fillRect(dino.x, dino.y + 12, 10, 12); // tail
+      // legs
+      ctx.fillRect(dino.x + 10, dino.y + dino.h - 8, 4, 8);
+      ctx.fillRect(dino.x + 20, dino.y + dino.h - 8, 4, 8);
+      // eye
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(dino.x + 24, dino.y - 6, 3, 3);
+
+      // Draw Obstacles (Cacti)
+      ctx.fillStyle = '#ef4444';
+      for (let obs of obstacles) {
+        ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+        // arms
+        ctx.fillRect(obs.x - 4, obs.y + 10, 4, 12);
+        ctx.fillRect(obs.x + obs.w, obs.y + 6, 4, 12);
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', e => {
+      if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
+        e.preventDefault();
+        jump();
+      }
+    });
+
+    canvas.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      jump();
+    });
+
+    loop();
+  </script>
+</body>
+</html>

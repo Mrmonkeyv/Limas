@@ -1,0 +1,6 @@
+{
+  "name": "ArcadeVault - Unblocked Games Portal",
+  "description": "Fast, lightweight unblocked games portal with instant iframe launcher, custom game loader, tab cloaker, and curated games library.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
